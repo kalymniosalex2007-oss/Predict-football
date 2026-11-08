@@ -1,0 +1,54 @@
+name: Update and publish
+on:
+  schedule:
+    - cron: '5,35 3-22 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: goalpredict
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch data and build site
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AI_MODEL: ${{ vars.AI_MODEL || 'claude-haiku-5-5' }}
+          API_DELAY_MS: ${{ vars.API_DELAY_MS || '6500' }}
+          MAX_ANALYSES_PER_DAY: ${{ vars.MAX_ANALYSES_PER_DAY || '10' }}
+          DAYS_AHEAD: ${{ vars.DAYS_AHEAD || '2' }}
+          ENRICH_TOMORROW: ${{ vars.ENRICH_TOMORROW || 'false' }}
+          ENABLE_CORNERS: ${{ vars.ENABLE_CORNERS || 'false' }}
+          SITE_NAME: ${{ vars.SITE_NAME || 'GoalPredict' }}
+        run: |
+          REPO="${GITHUB_REPOSITORY#*/}"
+          if [ "$REPO" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then BASE=""; else BASE="/$REPO"; fi
+          export BASE SITE_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io$BASE"
+          node build.js
+      - name: Save data to the repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if ! git diff --cached --quiet; then git commit -m "Update data"; git pull --rebase; git push; fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
